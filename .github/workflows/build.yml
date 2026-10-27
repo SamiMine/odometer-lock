@@ -1,0 +1,1305 @@
+name: Build Odometer Lock
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Scaffold project files
+        run: |
+          mkdir -p app/src/main/java/com/odometer/lock/ui
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+
+          cat > settings.gradle << '__F01__'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "OdometerLock"
+          include ':app'
+          __F01__
+
+          cat > build.gradle << '__F02__'
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+          }
+          __F02__
+
+          cat > gradle.properties << '__F03__'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          android.suppressUnsupportedCompileSdk=34
+          __F03__
+
+          cat > app/build.gradle << '__F04__'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          android {
+              namespace 'com.odometer.lock'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.odometer.lock"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release { minifyEnabled false }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = '17' }
+              buildFeatures { compose true }
+              composeOptions {
+                  kotlinCompilerExtensionVersion = '1.5.6'
+              }
+          }
+          dependencies {
+              implementation platform('androidx.compose:compose-bom:2024.02.00')
+              implementation 'androidx.compose.ui:ui'
+              implementation 'androidx.compose.material3:material3'
+              implementation 'androidx.compose.material:material-icons-extended'
+              implementation 'androidx.activity:activity-compose:1.8.2'
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.biometric:biometric:1.1.0'
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+          }
+          __F04__
+
+          cat > app/src/main/AndroidManifest.xml << '__F05__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+              <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+              <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+              <application
+                  android:name=".LockApp"
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.OdometerLock">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:theme="@style/Theme.OdometerLock">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <activity
+                      android:name=".LockActivity"
+                      android:exported="false"
+                      android:excludeFromRecents="true"
+                      android:launchMode="singleInstance"
+                      android:showWhenLocked="true"
+                      android:turnScreenOn="true"
+                      android:showOnLockScreen="true"
+                      android:theme="@style/Theme.OdometerLock.FullScreen" />
+
+                  <activity
+                      android:name=".SettingsActivity"
+                      android:exported="false"
+                      android:theme="@style/Theme.OdometerLock" />
+
+                  <service
+                      android:name=".LockScreenService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="lock_screen_persistent_service" />
+                  </service>
+
+                  <service
+                      android:name=".NotificationService"
+                      android:exported="true"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService" />
+                      </intent-filter>
+                  </service>
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                      </intent-filter>
+                  </receiver>
+              </application>
+          </manifest>
+          __F05__
+
+          cat > app/src/main/java/com/odometer/lock/LockApp.kt << '__F06__'
+          package com.odometer.lock
+
+          import android.app.Application
+
+          class LockApp : Application() {
+              override fun onCreate() {
+                  super.onCreate()
+                  Prefs.init(this)
+              }
+          }
+          __F06__
+
+          cat > app/src/main/java/com/odometer/lock/Prefs.kt << '__F07__'
+          package com.odometer.lock
+
+          import android.content.Context
+          import android.content.SharedPreferences
+
+          object Prefs {
+              private lateinit var sp: SharedPreferences
+
+              fun init(context: Context) {
+                  if (!::sp.isInitialized) {
+                      sp = context.applicationContext
+                          .getSharedPreferences("odometer_lock_prefs", Context.MODE_PRIVATE)
+                  }
+              }
+
+              var odometerValue: Int
+                  get() = sp.getInt("odometer_value", 0)
+                  set(v) { sp.edit().putInt("odometer_value", v).apply() }
+
+              var maxValue: Int
+                  get() = sp.getInt("max_value", 9999)
+                  set(v) { sp.edit().putInt("max_value", v).apply() }
+
+              var vibrationEnabled: Boolean
+                  get() = sp.getBoolean("vibration", true)
+                  set(v) { sp.edit().putBoolean("vibration", v).apply() }
+
+              var soundEnabled: Boolean
+                  get() = sp.getBoolean("sound", true)
+                  set(v) { sp.edit().putBoolean("sound", v).apply() }
+
+              var showNotificationContent: Boolean
+                  get() = sp.getBoolean("show_notification_content", true)
+                  set(v) { sp.edit().putBoolean("show_notification_content", v).apply() }
+
+              var lockEnabled: Boolean
+                  get() = sp.getBoolean("lock_enabled", true)
+                  set(v) { sp.edit().putBoolean("lock_enabled", v).apply() }
+
+              fun resetOdometer() {
+                  odometerValue = 0
+              }
+          }
+          __F07__
+
+          cat > app/src/main/java/com/odometer/lock/NotificationStore.kt << '__F08__'
+          package com.odometer.lock
+
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.StateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+
+          data class LockNotification(
+              val key: String,
+              val packageName: String,
+              val appName: String,
+              val title: String,
+              val text: String,
+              val postedTime: Long
+          )
+
+          object NotificationStore {
+              private val _notifications = MutableStateFlow<List<LockNotification>>(emptyList())
+              val notifications: StateFlow<List<LockNotification>> = _notifications.asStateFlow()
+
+              fun addOrUpdate(n: LockNotification) {
+                  val current = _notifications.value.toMutableList()
+                  val i = current.indexOfFirst { it.key == n.key }
+                  if (i >= 0) current[i] = n else current.add(0, n)
+                  _notifications.value = current.take(20)
+              }
+
+              fun remove(key: String) {
+                  _notifications.value = _notifications.value.filterNot { it.key == key }
+              }
+
+              fun clear() { _notifications.value = emptyList() }
+          }
+          __F08__
+
+          cat > app/src/main/java/com/odometer/lock/NotificationService.kt << '__F09__'
+          package com.odometer.lock
+
+          import android.app.Notification
+          import android.content.pm.PackageManager
+          import android.service.notification.NotificationListenerService
+          import android.service.notification.StatusBarNotification
+
+          class NotificationService : NotificationListenerService() {
+              override fun onListenerConnected() {
+                  super.onListenerConnected()
+                  activeNotifications?.forEach { it.pushToStore() }
+              }
+
+              override fun onNotificationPosted(sbn: StatusBarNotification) {
+                  if (sbn.packageName == packageName) return
+                  if (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
+                  sbn.pushToStore()
+              }
+
+              override fun onNotificationRemoved(sbn: StatusBarNotification) {
+                  NotificationStore.remove(sbn.key ?: "")
+              }
+
+              private fun StatusBarNotification.pushToStore() {
+                  val extras = notification.extras
+                  val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: return
+                  val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+                  val appName = try {
+                      val ai = packageManager.getApplicationInfo(packageName, 0)
+                      packageManager.getApplicationLabel(ai).toString()
+                  } catch (e: PackageManager.NameNotFoundException) { packageName }
+
+                  NotificationStore.addOrUpdate(
+                      LockNotification(
+                          key = key ?: "",
+                          packageName = packageName,
+                          appName = appName,
+                          title = title,
+                          text = text,
+                          postedTime = postTime
+                      )
+                  )
+              }
+          }
+          __F09__
+
+          cat > app/src/main/java/com/odometer/lock/LockScreenService.kt << '__F10__'
+          package com.odometer.lock
+
+          import android.app.KeyguardManager
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.os.Build
+          import android.os.IBinder
+          import androidx.core.app.NotificationCompat
+
+          class LockScreenService : Service() {
+              private val screenReceiver = object : BroadcastReceiver() {
+                  override fun onReceive(context: Context, intent: Intent) {
+                      if (intent.action == Intent.ACTION_SCREEN_ON && Prefs.lockEnabled) {
+                          val km = getSystemService(KeyguardManager::class.java)
+                          if (km?.isKeyguardLocked == true) launchLock()
+                      }
+                  }
+              }
+
+              override fun onCreate() {
+                  super.onCreate()
+                  createChannel()
+                  startForeground(NOTIFICATION_ID, buildNotification())
+                  val filter = IntentFilter(Intent.ACTION_SCREEN_ON)
+                  if (Build.VERSION.SDK_INT >= 33) {
+                      registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      registerReceiver(screenReceiver, filter)
+                  }
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onDestroy() {
+                  try { unregisterReceiver(screenReceiver) } catch (e: Exception) {}
+                  super.onDestroy()
+              }
+
+              private fun launchLock() {
+                  try {
+                      startActivity(
+                          Intent(this, LockActivity::class.java).apply {
+                              addFlags(
+                                  Intent.FLAG_ACTIVITY_NEW_TASK or
+                                  Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                  Intent.FLAG_ACTIVITY_CLEAR_TOP
+                              )
+                          }
+                      )
+                  } catch (e: Exception) {}
+              }
+
+              private fun createChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val nm = getSystemService(NotificationManager::class.java)
+                      nm.createNotificationChannel(
+                          NotificationChannel(
+                              CHANNEL_ID, "Odometer Lock", NotificationManager.IMPORTANCE_MIN
+                          ).apply { setShowBadge(false) }
+                      )
+                  }
+              }
+
+              private fun buildNotification(): Notification {
+                  val pi = PendingIntent.getActivity(
+                      this, 0, Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+                  return NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setSmallIcon(android.R.drawable.ic_lock_lock)
+                      .setContentTitle("Odometer Lock active")
+                      .setContentIntent(pi)
+                      .setOngoing(true)
+                      .setPriority(NotificationCompat.PRIORITY_MIN)
+                      .build()
+              }
+
+              companion object {
+                  private const val CHANNEL_ID = "lock_screen_service"
+                  private const val NOTIFICATION_ID = 1001
+
+                  fun start(context: Context) {
+                      val intent = Intent(context, LockScreenService::class.java)
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                          context.startForegroundService(intent)
+                      else context.startService(intent)
+                  }
+
+                  fun stop(context: Context) {
+                      context.stopService(Intent(context, LockScreenService::class.java))
+                  }
+              }
+          }
+          __F10__
+
+          cat > app/src/main/java/com/odometer/lock/BootReceiver.kt << '__F11__'
+          package com.odometer.lock
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  Prefs.init(context)
+                  if (Prefs.lockEnabled) LockScreenService.start(context)
+              }
+          }
+          __F11__
+
+          cat > app/src/main/java/com/odometer/lock/MainActivity.kt << '__F12__'
+          package com.odometer.lock
+
+          import android.content.Context
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          import androidx.core.app.NotificationManagerCompat
+          import com.odometer.lock.ui.OdometerTheme
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent { OdometerTheme { SetupScreen() } }
+              }
+          }
+
+          @Composable
+          fun SetupScreen() {
+              val context = LocalContext.current
+              var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+              var notifGranted by remember {
+                  mutableStateOf(
+                      if (Build.VERSION.SDK_INT >= 33)
+                          context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                              android.content.pm.PackageManager.PERMISSION_GRANTED
+                      else NotificationManagerCompat.from(context).areNotificationsEnabled()
+                  )
+              }
+
+              Surface(modifier = Modifier.fillMaxSize()) {
+                  Column(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .verticalScroll(rememberScrollState())
+                          .padding(24.dp),
+                      verticalArrangement = Arrangement.spacedBy(12.dp)
+                  ) {
+                      Text("Odometer Lock", style = MaterialTheme.typography.headlineLarge)
+                      Text(
+                          "Lock screen replacement with a car odometer. Grant permissions, then start the service.",
+                          style = MaterialTheme.typography.bodyMedium
+                      )
+                      HorizontalDivider()
+
+                      PermissionRow("Draw over other apps", overlayGranted) {
+                          context.startActivity(Intent(
+                              Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                              Uri.parse("package:" + context.packageName)
+                          ))
+                      }
+                      PermissionRow("Notifications", notifGranted) {
+                          context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                              .setData(Uri.parse("package:" + context.packageName)))
+                      }
+                      PermissionRow("Notification access", isNotificationListenerEnabled(context)) {
+                          context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                      }
+
+                      HorizontalDivider()
+
+                      Button(
+                          onClick = { LockScreenService.start(context) },
+                          modifier = Modifier.fillMaxWidth()
+                      ) { Text("Start lock screen") }
+
+                      Button(
+                          onClick = { LockScreenService.stop(context) },
+                          modifier = Modifier.fillMaxWidth(),
+                          colors = ButtonDefaults.buttonColors(
+                              containerColor = MaterialTheme.colorScheme.errorContainer,
+                              contentColor = MaterialTheme.colorScheme.onErrorContainer
+                          )
+                      ) { Text("Stop lock screen") }
+
+                      Button(
+                          onClick = { context.startActivity(Intent(context, SettingsActivity::class.java)) },
+                          modifier = Modifier.fillMaxWidth(),
+                          colors = ButtonDefaults.buttonColors(
+                              containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                              contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                          )
+                      ) { Text("Settings") }
+
+                      Button(
+                          onClick = {
+                              context.startActivity(
+                                  Intent(context, LockActivity::class.java)
+                                      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                              )
+                          },
+                          modifier = Modifier.fillMaxWidth(),
+                          colors = ButtonDefaults.buttonColors(
+                              containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                              contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                          )
+                      ) { Text("Preview lock screen") }
+                  }
+              }
+          }
+
+          @Composable
+          fun PermissionRow(title: String, granted: Boolean, onGrant: () -> Unit) {
+              Card(
+                  modifier = Modifier.fillMaxWidth(),
+                  colors = CardDefaults.cardColors(
+                      containerColor = if (granted) MaterialTheme.colorScheme.primaryContainer
+                                       else MaterialTheme.colorScheme.surfaceVariant
+                  )
+              ) {
+                  Row(
+                      modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Column(modifier = Modifier.weight(1f)) {
+                          Text(title, style = MaterialTheme.typography.bodyLarge)
+                          Text(if (granted) "GRANTED" else "NOT GRANTED",
+                              style = MaterialTheme.typography.bodySmall)
+                      }
+                      if (!granted) TextButton(onClick = onGrant) { Text("GRANT") }
+                  }
+              }
+          }
+
+          fun isNotificationListenerEnabled(context: Context): Boolean {
+              val flat = Settings.Secure.getString(
+                  context.contentResolver, "enabled_notification_listeners"
+              )
+              return flat?.contains(context.packageName) == true
+          }
+          __F12__
+
+          cat > app/src/main/java/com/odometer/lock/LockActivity.kt << '__F13__'
+          package com.odometer.lock
+
+          import android.app.KeyguardManager
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.media.AudioManager
+          import android.media.ToneGenerator
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.VibrationEffect
+          import android.os.Vibrator
+          import android.os.VibratorManager
+          import android.view.WindowManager
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.compose.setContent
+          import com.odometer.lock.ui.LockScreenUi
+          import com.odometer.lock.ui.OdometerTheme
+
+          class LockActivity : ComponentActivity() {
+              private var toneGenerator: ToneGenerator? = null
+
+              private val receiver = object : BroadcastReceiver() {
+                  override fun onReceive(context: Context, intent: Intent) {
+                      when (intent.action) {
+                          Intent.ACTION_USER_PRESENT -> finishAndRemoveTask()
+                          Intent.ACTION_SCREEN_OFF -> finishAndRemoveTask()
+                      }
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  if (Build.VERSION.SDK_INT >= 27) {
+                      setShowWhenLocked(true)
+                      setTurnScreenOn(true)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      window.addFlags(
+                          WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                          WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                      )
+                  }
+                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() { }
+                  })
+
+                  val filter = IntentFilter().apply {
+                      addAction(Intent.ACTION_USER_PRESENT)
+                      addAction(Intent.ACTION_SCREEN_OFF)
+                  }
+                  if (Build.VERSION.SDK_INT >= 33) {
+                      registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      registerReceiver(receiver, filter)
+                  }
+
+                  toneGenerator = try { ToneGenerator(AudioManager.STREAM_SYSTEM, 50) } catch (e: Exception) { null }
+
+                  setContent {
+                      OdometerTheme {
+                          LockScreenUi(
+                              onUnlock = { attemptUnlock() },
+                              onStep = { playFeedback() }
+                          )
+                      }
+                  }
+              }
+
+              override fun onDestroy() {
+                  try { unregisterReceiver(receiver) } catch (e: Exception) {}
+                  toneGenerator?.release()
+                  super.onDestroy()
+              }
+
+              private fun playFeedback() {
+                  if (Prefs.vibrationEnabled) vibrate()
+                  if (Prefs.soundEnabled) playTick()
+              }
+
+              private fun vibrate() {
+                  try {
+                      val vibrator = if (Build.VERSION.SDK_INT >= 31) {
+                          getSystemService(VibratorManager::class.java).defaultVibrator
+                      } else {
+                          @Suppress("DEPRECATION")
+                          getSystemService(Vibrator::class.java)
+                      }
+                      if (vibrator != null && vibrator.hasVibrator()) {
+                          vibrator.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE))
+                      }
+                  } catch (e: Exception) {}
+              }
+
+              private fun playTick() {
+                  try { toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 20) } catch (e: Exception) {}
+              }
+
+              private fun attemptUnlock() {
+                  val km = getSystemService(KeyguardManager::class.java)
+                  if (km == null) { finishAndRemoveTask(); return }
+                  km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
+                      override fun onDismissSucceeded() { finishAndRemoveTask() }
+                      override fun onDismissCancelled() {}
+                      override fun onDismissError() {}
+                  })
+              }
+          }
+          __F13__
+
+          cat > app/src/main/java/com/odometer/lock/SettingsActivity.kt << '__F14__'
+          package com.odometer.lock
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.unit.dp
+          import com.odometer.lock.ui.OdometerTheme
+
+          class SettingsActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent { OdometerTheme { SettingsScreen() } }
+              }
+          }
+
+          @Composable
+          fun SettingsScreen() {
+              var maxValue by remember { mutableFloatStateOf(Prefs.maxValue.toFloat()) }
+              var vibration by remember { mutableStateOf(Prefs.vibrationEnabled) }
+              var sound by remember { mutableStateOf(Prefs.soundEnabled) }
+              var showContent by remember { mutableStateOf(Prefs.showNotificationContent) }
+              var lockEnabled by remember { mutableStateOf(Prefs.lockEnabled) }
+
+              Surface(modifier = Modifier.fillMaxSize()) {
+                  Column(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .verticalScroll(rememberScrollState())
+                          .padding(24.dp),
+                      verticalArrangement = Arrangement.spacedBy(12.dp)
+                  ) {
+                      Text("Settings", style = MaterialTheme.typography.headlineLarge)
+
+                      Card(modifier = Modifier.fillMaxWidth()) {
+                          Column(modifier = Modifier.padding(16.dp)) {
+                              Text("Max odometer value: " + maxValue.toInt(),
+                                  style = MaterialTheme.typography.titleMedium)
+                              Slider(
+                                  value = maxValue,
+                                  onValueChange = {
+                                      maxValue = it
+                                      Prefs.maxValue = it.toInt().coerceAtLeast(10)
+                                  },
+                                  valueRange = 10f..99999f
+                              )
+                          }
+                      }
+
+                      SwitchRow("Vibration", vibration) { vibration = it; Prefs.vibrationEnabled = it }
+                      SwitchRow("Sound", sound) { sound = it; Prefs.soundEnabled = it }
+                      SwitchRow("Show notification content", showContent) {
+                          showContent = it; Prefs.showNotificationContent = it
+                      }
+                      SwitchRow("Lock screen enabled", lockEnabled) {
+                          lockEnabled = it; Prefs.lockEnabled = it
+                      }
+
+                      Button(
+                          onClick = { Prefs.resetOdometer() },
+                          modifier = Modifier.fillMaxWidth()
+                      ) { Text("Reset odometer to 0") }
+                  }
+              }
+          }
+
+          @Composable
+          fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+              Card(modifier = Modifier.fillMaxWidth()) {
+                  Row(
+                      modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Text(label, modifier = Modifier.weight(1f))
+                      Switch(checked = checked, onCheckedChange = onChange)
+                  }
+              }
+          }
+          __F14__
+
+          cat > app/src/main/java/com/odometer/lock/ui/Theme.kt << '__F15__'
+          package com.odometer.lock.ui
+
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.darkColorScheme
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.graphics.Color
+
+          private val DarkColors = darkColorScheme(
+              primary = Color(0xFFFF6B35),
+              onPrimary = Color(0xFF1A1A1A),
+              surface = Color(0xFF0A0A0A),
+              onSurface = Color(0xFFF5F5F5),
+              background = Color(0xFF0A0A0A),
+              onBackground = Color(0xFFF5F5F5)
+          )
+
+          @Composable
+          fun OdometerTheme(content: @Composable () -> Unit) {
+              MaterialTheme(colorScheme = DarkColors, content = content)
+          }
+          __F15__
+
+          cat > app/src/main/java/com/odometer/lock/ui/Odometer.kt << '__F16__'
+          package com.odometer.lock.ui
+
+          import androidx.compose.animation.core.LinearEasing
+          import androidx.compose.animation.core.animateFloatAsState
+          import androidx.compose.animation.core.tween
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.gestures.detectVerticalDragGestures
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.draw.clipToBounds
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.input.pointer.pointerInput
+          import androidx.compose.ui.platform.LocalDensity
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import kotlin.math.floor
+          import kotlin.math.max
+          import kotlin.math.pow
+
+          @Composable
+          fun OdometerSection(
+              value: Int,
+              maxValue: Int,
+              onValueChange: (Int) -> Unit,
+              onStep: () -> Unit,
+              digitCount: Int = 5,
+              modifier: Modifier = Modifier
+          ) {
+              val animatedValue by animateFloatAsState(
+                  targetValue = value.toFloat(),
+                  animationSpec = tween(250, easing = LinearEasing),
+                  label = "odometerAnim"
+              )
+
+              val density = LocalDensity.current
+              val threshold = with(density) { 40.dp.toPx() }
+              var accum by remember { mutableFloatStateOf(0f) }
+
+              Box(
+                  modifier = modifier
+                      .fillMaxWidth()
+                      .pointerInput(value, maxValue) {
+                          detectVerticalDragGestures(
+                              onDrag = { change, dragAmount ->
+                                  change.consume()
+                                  accum -= dragAmount
+                                  while (accum >= threshold) {
+                                      onValueChange((value + 1).coerceIn(0, maxValue))
+                                      onStep(); accum -= threshold
+                                  }
+                                  while (accum <= -threshold) {
+                                      onValueChange((value - 1).coerceIn(0, maxValue))
+                                      onStep(); accum += threshold
+                                  }
+                              },
+                              onDragEnd = { accum = 0f }
+                          )
+                      },
+                  contentAlignment = Alignment.Center
+              ) {
+                  Row(
+                      modifier = Modifier
+                          .clip(RoundedCornerShape(16.dp))
+                          .background(Color(0xFF0F0F0F))
+                          .padding(horizontal = 16.dp, vertical = 10.dp),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      for (p in (digitCount - 1) downTo 0) {
+                          val position = computePosition(animatedValue, p)
+                          val base = floor(position).toInt() % 10
+                          val frac = position - floor(position)
+                          RollingDigit(base, frac)
+                          if (p == 1) {
+                              Text(
+                                  text = ",",
+                                  color = Color(0xFFFF6B35),
+                                  fontSize = 56.sp,
+                                  fontWeight = FontWeight.Bold,
+                                  modifier = Modifier.padding(horizontal = 2.dp)
+                              )
+                          }
+                      }
+                  }
+              }
+          }
+
+          private fun computePosition(value: Float, place: Int): Float {
+              if (place == 0) return value % 10f
+              val placeValue = 10.0.pow(place).toFloat()
+              val base = floor(value / placeValue)
+              val within = value - base * placeValue
+              val roll = max(0f, within - (placeValue - 1f))
+              return base + roll
+          }
+
+          @Composable
+          private fun RollingDigit(base: Int, frac: Float) {
+              val digitHeight = 72.dp
+              Box(
+                  modifier = Modifier
+                      .height(digitHeight)
+                      .width(42.dp)
+                      .clipToBounds()
+              ) {
+                  Column(modifier = Modifier.offset(y = (frac * -72f).dp)) {
+                      Box(Modifier.height(digitHeight).fillMaxWidth(), Alignment.Center) {
+                          Text(
+                              "" + base,
+                              fontSize = 56.sp,
+                              fontWeight = FontWeight.Bold,
+                              color = Color(0xFFF5F5F5)
+                          )
+                      }
+                      Box(Modifier.height(digitHeight).fillMaxWidth(), Alignment.Center) {
+                          Text(
+                              "" + ((base + 1) % 10),
+                              fontSize = 56.sp,
+                              fontWeight = FontWeight.Bold,
+                              color = Color(0xFFF5F5F5)
+                          )
+                      }
+                  }
+              }
+          }
+          __F16__
+
+          cat > app/src/main/java/com/odometer/lock/ui/LockScreenUi.kt << '__F17__'
+          package com.odometer.lock.ui
+
+          import android.content.Intent
+          import android.net.Uri
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Fingerprint
+          import androidx.compose.material.icons.filled.Notifications
+          import androidx.compose.material.icons.filled.Phone
+          import androidx.compose.material.icons.filled.Visibility
+          import androidx.compose.material.icons.filled.VisibilityOff
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Brush
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.platform.LocalLayoutDirection
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextOverflow
+          import androidx.compose.ui.unit.LayoutDirection
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import com.odometer.lock.LockNotification
+          import com.odometer.lock.NotificationStore
+          import com.odometer.lock.Prefs
+          import kotlinx.coroutines.delay
+          import java.text.SimpleDateFormat
+          import java.util.Calendar
+          import java.util.Locale
+
+          @Composable
+          fun LockScreenUi(
+              onUnlock: () -> Unit,
+              onStep: () -> Unit
+          ) {
+              val context = LocalContext.current
+              val notifications by NotificationStore.notifications.collectAsState()
+              var hidden by remember { mutableStateOf(false) }
+              var odometerValue by remember { mutableIntStateOf(Prefs.odometerValue) }
+              val maxValue = remember { Prefs.maxValue }
+              var now by remember { mutableStateOf(Calendar.getInstance()) }
+              var triggered by remember { mutableStateOf(false) }
+
+              LaunchedEffect(Unit) {
+                  while (true) { delay(1000); now = Calendar.getInstance() }
+              }
+
+              LaunchedEffect(odometerValue) {
+                  if (odometerValue >= maxValue && !triggered) {
+                      triggered = true
+                      delay(400)
+                      onUnlock()
+                  }
+              }
+
+              Box(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .background(
+                          Brush.verticalGradient(
+                              listOf(Color(0xFF1A0A00), Color(0xFF080808), Color(0xFF000000))
+                          )
+                      )
+              ) {
+                  Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                      Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.End,
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          if (notifications.isNotEmpty()) {
+                              Text(
+                                  "" + notifications.size,
+                                  color = Color(0xFFFF6B35),
+                                  fontSize = 14.sp,
+                                  fontWeight = FontWeight.Bold
+                              )
+                              Spacer(Modifier.width(4.dp))
+                              Icon(
+                                  Icons.Default.Notifications,
+                                  contentDescription = null,
+                                  tint = Color(0xFFFF6B35),
+                                  modifier = Modifier.size(20.dp)
+                              )
+                              Spacer(Modifier.width(8.dp))
+                          }
+                          IconButton(onClick = { hidden = !hidden }) {
+                              Icon(
+                                  imageVector = if (hidden) Icons.Default.VisibilityOff
+                                                else Icons.Default.Visibility,
+                                  contentDescription = "Toggle",
+                                  tint = Color(0xFFFF6B35)
+                              )
+                          }
+                      }
+
+                      LazyColumn(
+                          modifier = Modifier.weight(1f).fillMaxWidth(),
+                          verticalArrangement = Arrangement.spacedBy(8.dp)
+                      ) {
+                          item {
+                              Column(
+                                  modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                  horizontalAlignment = Alignment.CenterHorizontally
+                              ) {
+                                  val hhmm = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now.time)
+                                  Text(
+                                      hhmm, color = Color.White,
+                                      fontSize = 96.sp, fontWeight = FontWeight.Thin
+                                  )
+                                  val day = SimpleDateFormat("EEEE", Locale.US).format(now.time)
+                                  val date = SimpleDateFormat("d MMMM", Locale.US).format(now.time)
+                                  Text("" + day + ", " + date, color = Color(0xFFAAAAAA), fontSize = 16.sp)
+                              }
+                          }
+
+                          if (!hidden) {
+                              items(notifications) { n ->
+                                  NotificationCard(n, showContent = Prefs.showNotificationContent)
+                              }
+                          }
+                      }
+
+                      Column(
+                          modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                          horizontalAlignment = Alignment.CenterHorizontally
+                      ) {
+                          Text(
+                              "ODOMETER",
+                              color = Color(0xFF888888),
+                              fontSize = 12.sp,
+                              letterSpacing = 4.sp
+                          )
+                          Spacer(Modifier.height(6.dp))
+
+                          CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                              OdometerSection(
+                                  value = odometerValue,
+                                  maxValue = maxValue,
+                                  onValueChange = {
+                                      odometerValue = it
+                                      Prefs.odometerValue = it
+                                  },
+                                  onStep = onStep
+                              )
+                          }
+
+                          Spacer(Modifier.height(4.dp))
+                          Text(
+                              "Swipe up to increase",
+                              color = Color(0xFF666666),
+                              fontSize = 11.sp
+                          )
+                      }
+
+                      Spacer(Modifier.height(16.dp))
+
+                      Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.SpaceEvenly,
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                              Box(
+                                  modifier = Modifier
+                                      .size(64.dp)
+                                      .clip(CircleShape)
+                                      .background(Color(0x22FF6B35))
+                                      .clickable { onUnlock() },
+                                  contentAlignment = Alignment.Center
+                              ) {
+                                  Icon(
+                                      Icons.Default.Fingerprint,
+                                      contentDescription = "Fingerprint",
+                                      tint = Color(0xFFFF6B35),
+                                      modifier = Modifier.size(36.dp)
+                                  )
+                              }
+                              Spacer(Modifier.height(4.dp))
+                              Text("Fingerprint / PIN", color = Color(0xFFAAAAAA), fontSize = 11.sp)
+                          }
+
+                          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                              Box(
+                                  modifier = Modifier
+                                      .size(56.dp)
+                                      .clip(CircleShape)
+                                      .background(Color(0x22FF4444))
+                                      .clickable {
+                                          context.startActivity(
+                                              Intent(Intent.ACTION_DIAL).apply {
+                                                  data = Uri.parse("tel:112")
+                                                  addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                              }
+                                          )
+                                      },
+                                  contentAlignment = Alignment.Center
+                              ) {
+                                  Icon(
+                                      Icons.Default.Phone,
+                                      contentDescription = "Emergency",
+                                      tint = Color(0xFFFF4444),
+                                      modifier = Modifier.size(28.dp)
+                                  )
+                              }
+                              Spacer(Modifier.height(4.dp))
+                              Text("Emergency", color = Color(0xFFAAAAAA), fontSize = 11.sp)
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun NotificationCard(notification: LockNotification, showContent: Boolean) {
+              Card(
+                  modifier = Modifier.fillMaxWidth(),
+                  colors = CardDefaults.cardColors(containerColor = Color(0x1AFFFFFF)),
+                  shape = RoundedCornerShape(16.dp)
+              ) {
+                  Row(
+                      modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Column(modifier = Modifier.weight(1f)) {
+                          Text(
+                              notification.appName,
+                              color = Color(0xFFFF6B35),
+                              fontSize = 11.sp,
+                              fontWeight = FontWeight.Medium
+                          )
+                          Text(
+                              notification.title,
+                              color = Color.White,
+                              fontSize = 14.sp,
+                              maxLines = 1,
+                              overflow = TextOverflow.Ellipsis
+                          )
+                          if (showContent && notification.text.isNotEmpty()) {
+                              Text(
+                                  notification.text,
+                                  color = Color(0xFFAAAAAA),
+                                  fontSize = 12.sp,
+                                  maxLines = 2,
+                                  overflow = TextOverflow.Ellipsis
+                              )
+                          }
+                      }
+                  }
+              }
+          }
+          __F17__
+
+          cat > app/src/main/res/values/strings.xml << '__F18__'
+          <resources>
+              <string name="app_name">Odometer Lock</string>
+          </resources>
+          __F18__
+
+          cat > app/src/main/res/values/colors.xml << '__F19__'
+          <resources>
+              <color name="ic_launcher_background">#1A1A1A</color>
+          </resources>
+          __F19__
+
+          cat > app/src/main/res/values/themes.xml << '__F20__'
+          <resources>
+              <style name="Theme.OdometerLock" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:statusBarColor">#FF000000</item>
+                  <item name="android:navigationBarColor">#FF000000</item>
+                  <item name="android:windowBackground">#FF000000</item>
+              </style>
+
+              <style name="Theme.OdometerLock.FullScreen" parent="Theme.OdometerLock">
+                  <item name="android:windowFullscreen">true</item>
+                  <item name="android:windowShowWallpaper">false</item>
+              </style>
+          </resources>
+          __F20__
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml << '__F21__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          __F21__
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml << '__F22__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          __F22__
+
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml << '__F23__'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#FF6B35"
+                  android:pathData="M54,28 A26,26 0 0,0 28,54 A26,26 0 0,0 54,80 A26,26 0 0,0 80,54 A26,26 0 0,0 54,28 Z" />
+              <path
+                  android:fillColor="#1A1A1A"
+                  android:pathData="M54,36 A18,18 0 0,0 36,54 A18,18 0 0,0 54,72 A18,18 0 0,0 72,54 A18,18 0 0,0 54,36 Z" />
+              <path
+                  android:strokeColor="#FF6B35"
+                  android:strokeWidth="3"
+                  android:fillColor="#00000000"
+                  android:pathData="M54,54 L64,42" />
+          </vector>
+          __F23__
+
+          echo "All 23 project files created."
+          ls -la
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Gradle 8.7
+        run: |
+          cd /tmp
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q gradle-8.7-bin.zip -d /opt/
+          echo "/opt/gradle-8.7/bin" >> $GITHUB_PATH
+          /opt/gradle-8.7/bin/gradle --version
+
+      - name: Build Debug APK
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          cd $GITHUB_WORKSPACE
+          /opt/gradle-8.7/bin/gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: odometer-lock-apk
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload source code
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odometer-lock-source
+          path: |
+            app
+            build.gradle
+            settings.gradle
+            gradle.properties
