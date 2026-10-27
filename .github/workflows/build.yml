@@ -45,8 +45,8 @@ jobs:
                   applicationId "com.odometer.lock"
                   minSdk 26
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "2.0"
               }
               buildTypes { release { minifyEnabled false } }
               compileOptions {
@@ -80,7 +80,7 @@ jobs:
 
               <application
                   android:name=".LockApp"
-                  android:label="Odometer Lock"
+                  android:label="Oppo Supercar Lock"
                   android:supportsRtl="true"
                   android:theme="@android:style/Theme.Material.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
@@ -96,7 +96,6 @@ jobs:
                       android:launchMode="singleInstance"
                       android:showWhenLocked="true"
                       android:turnScreenOn="true" />
-                  <activity android:name=".SettingsActivity" android:exported="false" />
                   <service
                       android:name=".LockScreenService"
                       android:exported="false"
@@ -121,7 +120,7 @@ jobs:
           EOF
 
           cat > app/src/main/res/values/strings.xml << 'EOF'
-          <resources><string name="app_name">Odometer Lock</string></resources>
+          <resources><string name="app_name">Oppo Supercar Lock</string></resources>
           EOF
 
           cat > app/src/main/java/com/odometer/lock/Core.kt << 'EOF'
@@ -142,13 +141,10 @@ jobs:
 
           object Prefs {
               private lateinit var sp: SharedPreferences
-              fun init(c: Context) { sp = c.getSharedPreferences("odometer_prefs", Context.MODE_PRIVATE) }
-              var odometerValue: Int get() = sp.getInt("val", 0); set(v) = sp.edit().putInt("val", v).apply()
-              var maxValue: Int get() = sp.getInt("max", 9999); set(v) = sp.edit().putInt("max", v).apply()
-              var vibrationEnabled: Boolean get() = sp.getBoolean("vib", true); set(v) = sp.edit().putBoolean("vib", v).apply()
-              var soundEnabled: Boolean get() = sp.getBoolean("snd", true); set(v) = sp.edit().putBoolean("snd", v).apply()
+              fun init(c: Context) { sp = c.getSharedPreferences("oppo_prefs", Context.MODE_PRIVATE) }
+              var sound: Boolean get() = sp.getBoolean("snd", true); set(v) = sp.edit().putBoolean("snd", v).apply()
+              var vibration: Boolean get() = sp.getBoolean("vib", true); set(v) = sp.edit().putBoolean("vib", v).apply()
               var showContent: Boolean get() = sp.getBoolean("cnt", true); set(v) = sp.edit().putBoolean("cnt", v).apply()
-              var lockEnabled: Boolean get() = sp.getBoolean("lck", true); set(v) = sp.edit().putBoolean("lck", v).apply()
           }
 
           data class LockNotification(val key: String, val appName: String, val title: String, val text: String)
@@ -160,7 +156,7 @@ jobs:
                   val cur = _list.value.toMutableList()
                   val idx = cur.indexOfFirst { it.key == n.key }
                   if (idx >= 0) cur[idx] = n else cur.add(0, n)
-                  _list.value = cur.take(15)
+                  _list.value = cur.take(10)
               }
               fun remove(key: String) { _list.value = _list.value.filterNot { it.key == key } }
           }
@@ -179,7 +175,7 @@ jobs:
           class LockScreenService : Service() {
               private val receiver = object : BroadcastReceiver() {
                   override fun onReceive(context: Context, intent: Intent) {
-                      if (intent.action == Intent.ACTION_SCREEN_ON && Prefs.lockEnabled) {
+                      if (intent.action == Intent.ACTION_SCREEN_ON) {
                           val km = getSystemService(KeyguardManager::class.java)
                           if (km?.isKeyguardLocked == true) {
                               startActivity(Intent(context, LockActivity::class.java).apply {
@@ -191,15 +187,15 @@ jobs:
               }
               override fun onCreate() {
                   super.onCreate()
-                  val chanId = "odometer_lock_chan"
+                  val chanId = "oppo_lock_chan"
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                       getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-                          NotificationChannel(chanId, "Lock Service", NotificationManager.IMPORTANCE_MIN)
+                          NotificationChannel(chanId, "Supercar Lock", NotificationManager.IMPORTANCE_MIN)
                       )
                   }
                   startForeground(1, NotificationCompat.Builder(this, chanId)
                       .setSmallIcon(android.R.drawable.ic_lock_lock)
-                      .setContentTitle("Odometer Lock Active").build())
+                      .setContentTitle("Supercar Lock Active").build())
                   val filter = IntentFilter(Intent.ACTION_SCREEN_ON)
                   if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
                   else registerReceiver(receiver, filter)
@@ -211,11 +207,8 @@ jobs:
 
           class BootReceiver : BroadcastReceiver() {
               override fun onReceive(context: Context, intent: Intent) {
-                  Prefs.init(context)
-                  if (Prefs.lockEnabled) {
-                      val i = Intent(context, LockScreenService::class.java)
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(i) else context.startService(i)
-                  }
+                  val i = Intent(context, LockScreenService::class.java)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(i) else context.startService(i)
               }
           }
           EOF
@@ -223,7 +216,6 @@ jobs:
           cat > app/src/main/java/com/odometer/lock/MainActivity.kt << 'EOF'
           package com.odometer.lock
 
-          import android.content.Context
           import android.content.Intent
           import android.net.Uri
           import android.os.Build
@@ -246,20 +238,20 @@ jobs:
                       var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(ctx)) }
                       MaterialTheme(colorScheme = darkColorScheme()) {
                           Surface(modifier = Modifier.fillMaxSize()) {
-                              Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                  Text("Odometer Lock", style = MaterialTheme.typography.headlineMedium)
-                                  Text("Car odometer lock screen. Grant permissions to start:")
+                              Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                  Text("OPPO Find 5 Car Lock", style = MaterialTheme.typography.headlineMedium)
+                                  Text("Tachometer lock screen with live revving sound & vibration.")
 
                                   Button(onClick = {
                                       ctx.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
                                   }, modifier = Modifier.fillMaxWidth()) {
-                                      Text(if (hasOverlay) "✓ Overlay Granted" else "Grant Overlay Permission")
+                                      Text(if (hasOverlay) "✓ Overlay Granted" else "1. Grant Overlay Permission")
                                   }
 
                                   Button(onClick = {
                                       ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                   }, modifier = Modifier.fillMaxWidth()) {
-                                      Text("Grant Notification Access")
+                                      Text("2. Grant Notification Access")
                                   }
 
                                   HorizontalDivider()
@@ -267,74 +259,12 @@ jobs:
                                   Button(onClick = {
                                       val i = Intent(ctx, LockScreenService::class.java)
                                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
-                                  }, modifier = Modifier.fillMaxWidth()) { Text("Start Lock Screen Service") }
-
-                                  Button(onClick = {
-                                      ctx.stopService(Intent(ctx, LockScreenService::class.java))
-                                  }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                                      Text("Stop Service")
-                                  }
-
-                                  Button(onClick = {
-                                      ctx.startActivity(Intent(ctx, SettingsActivity::class.java))
-                                  }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
-                                      Text("Settings")
-                                  }
+                                  }, modifier = Modifier.fillMaxWidth()) { Text("Start Lock Service") }
 
                                   Button(onClick = {
                                       ctx.startActivity(Intent(ctx, LockActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                  }, modifier = Modifier.fillMaxWidth()) { Text("Preview Lock Screen") }
-                              }
-                          }
-                      }
-                  }
-              }
-          }
-          EOF
-
-          cat > app/src/main/java/com/odometer/lock/SettingsActivity.kt << 'EOF'
-          package com.odometer.lock
-
-          import android.os.Bundle
-          import androidx.activity.ComponentActivity
-          import androidx.activity.compose.setContent
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.material3.*
-          import androidx.compose.runtime.*
-          import androidx.compose.ui.Alignment
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.unit.dp
-
-          class SettingsActivity : ComponentActivity() {
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  setContent {
-                      var maxVal by remember { mutableFloatStateOf(Prefs.maxValue.toFloat()) }
-                      var vib by remember { mutableStateOf(Prefs.vibrationEnabled) }
-                      var snd by remember { mutableStateOf(Prefs.soundEnabled) }
-                      var cnt by remember { mutableStateOf(Prefs.showContent) }
-
-                      MaterialTheme(colorScheme = darkColorScheme()) {
-                          Surface(modifier = Modifier.fillMaxSize()) {
-                              Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                  Text("Settings", style = MaterialTheme.typography.headlineMedium)
-                                  Text("Max Odometer: ${maxVal.toInt()}")
-                                  Slider(value = maxVal, onValueChange = { maxVal = it; Prefs.maxValue = it.toInt() }, valueRange = 10f..9999f)
-
-                                  Row(verticalAlignment = Alignment.CenterVertically) {
-                                      Text("Vibration", modifier = Modifier.weight(1f))
-                                      Switch(checked = vib, onCheckedChange = { vib = it; Prefs.vibrationEnabled = it })
-                                  }
-                                  Row(verticalAlignment = Alignment.CenterVertically) {
-                                      Text("Sound", modifier = Modifier.weight(1f))
-                                      Switch(checked = snd, onCheckedChange = { snd = it; Prefs.soundEnabled = it })
-                                  }
-                                  Row(verticalAlignment = Alignment.CenterVertically) {
-                                      Text("Show Notification Content", modifier = Modifier.weight(1f))
-                                      Switch(checked = cnt, onCheckedChange = { cnt = it; Prefs.showContent = it })
-                                  }
-                                  Button(onClick = { Prefs.odometerValue = 0 }, modifier = Modifier.fillMaxWidth()) {
-                                      Text("Reset Odometer to 0")
+                                  }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                                      Text("Preview Oppo Tachometer Lock")
                                   }
                               }
                           }
@@ -349,8 +279,8 @@ jobs:
 
           import android.app.KeyguardManager
           import android.content.*
-          import android.media.AudioManager
-          import android.media.ToneGenerator
+          import android.graphics.Paint
+          import android.media.*
           import android.net.Uri
           import android.os.*
           import android.view.WindowManager
@@ -358,14 +288,14 @@ jobs:
           import androidx.activity.OnBackPressedCallback
           import androidx.activity.compose.setContent
           import androidx.compose.animation.core.animateFloatAsState
+          import androidx.compose.foundation.Canvas
           import androidx.compose.foundation.background
           import androidx.compose.foundation.clickable
-          import androidx.compose.foundation.gestures.detectVerticalDragGestures
+          import androidx.compose.foundation.gestures.detectDragGestures
           import androidx.compose.foundation.layout.*
           import androidx.compose.foundation.lazy.LazyColumn
           import androidx.compose.foundation.lazy.items
           import androidx.compose.foundation.shape.CircleShape
-          import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.material.icons.Icons
           import androidx.compose.material.icons.filled.*
           import androidx.compose.material3.*
@@ -373,8 +303,11 @@ jobs:
           import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.draw.clip
-          import androidx.compose.ui.draw.clipToBounds
-          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.geometry.Offset
+          import androidx.compose.ui.graphics.*
+          import androidx.compose.ui.graphics.drawscope.Stroke
+          import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+          import androidx.compose.ui.graphics.nativeCanvas
           import androidx.compose.ui.input.pointer.pointerInput
           import androidx.compose.ui.platform.LocalContext
           import androidx.compose.ui.text.font.FontWeight
@@ -383,12 +316,11 @@ jobs:
           import kotlinx.coroutines.delay
           import java.text.SimpleDateFormat
           import java.util.*
-          import kotlin.math.floor
-          import kotlin.math.max
-          import kotlin.math.pow
+          import kotlin.math.*
 
           class LockActivity : ComponentActivity() {
-              private var tone: ToneGenerator? = null
+              private var audioTrack: AudioTrack? = null
+              private var isPlayingAudio = false
               private val receiver = object : BroadcastReceiver() {
                   override fun onReceive(c: Context, i: Intent) { finishAndRemoveTask() }
               }
@@ -407,24 +339,61 @@ jobs:
                   if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
                   else registerReceiver(receiver, filter)
 
-                  tone = try { ToneGenerator(AudioManager.STREAM_SYSTEM, 50) } catch (e: Exception) { null }
+                  initEngineSound()
 
                   setContent {
-                      LockScreenContent(
+                      OppoLockScreen(
                           onUnlock = { unlockPhone() },
-                          onFeedback = {
-                              if (Prefs.vibrationEnabled) {
-                                  val v = getSystemService(Vibrator::class.java)
-                                  if (Build.VERSION.SDK_INT >= 26) v?.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE))
-                                  else @Suppress("DEPRECATION") v?.vibrate(15)
-                              }
-                              if (Prefs.soundEnabled) tone?.startTone(ToneGenerator.TONE_PROP_BEEP, 20)
-                          }
+                          onRevEngine = { ratio -> playEngineSound(ratio) },
+                          onStopRev = { stopEngineSound() }
                       )
                   }
               }
 
+              private fun initEngineSound() {
+                  val sampleRate = 22050
+                  val bufSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                  audioTrack = AudioTrack.Builder()
+                      .setAudioAttributes(AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).build())
+                      .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                      .setBufferSizeInBytes(bufSize)
+                      .build()
+              }
+
+              private fun playEngineSound(ratio: Float) {
+                  if (!Prefs.sound) return
+                  val baseFreq = 70.0 + (ratio * 380.0)
+                  val sampleRate = 22050
+                  val samples = 1024
+                  val buffer = ShortArray(samples)
+                  for (i in 0 until samples) {
+                      val angle = 2.0 * Math.PI * i / (sampleRate / baseFreq)
+                      val sample = (sin(angle) * 0.7 + sin(angle * 2.0) * 0.3) * Short.MAX_VALUE * (0.3 + ratio * 0.7)
+                      buffer[i] = sample.toInt().toShort()
+                  }
+                  try {
+                      if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) audioTrack?.play()
+                      audioTrack?.write(buffer, 0, samples, AudioTrack.WRITE_NON_BLOCKING)
+                  } catch (e: Exception) {}
+
+                  if (Prefs.vibration && ratio > 0.15f) {
+                      val v = getSystemService(Vibrator::class.java)
+                      val amp = (ratio * 255).toInt().coerceIn(10, 255)
+                      if (Build.VERSION.SDK_INT >= 26) {
+                          v?.vibrate(VibrationEffect.createOneShot(25, amp))
+                      }
+                  }
+              }
+
+              private fun stopEngineSound() {
+                  try {
+                      audioTrack?.pause()
+                      audioTrack?.flush()
+                  } catch (e: Exception) {}
+              }
+
               private fun unlockPhone() {
+                  stopEngineSound()
                   val km = getSystemService(KeyguardManager::class.java)
                   if (km == null) { finishAndRemoveTask(); return }
                   km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
@@ -434,18 +403,18 @@ jobs:
 
               override fun onDestroy() {
                   try { unregisterReceiver(receiver) } catch (e: Exception) {}
-                  tone?.release()
+                  stopEngineSound()
+                  audioTrack?.release()
                   super.onDestroy()
               }
           }
 
           @Composable
-          fun LockScreenContent(onUnlock: () -> Unit, onFeedback: () -> Unit) {
+          fun OppoLockScreen(onUnlock: () -> Unit, onRevEngine: (Float) -> Unit, onStopRev: () -> Unit) {
               val ctx = LocalContext.current
               val notifs by NotificationStore.list.collectAsState()
               var hideNotifs by remember { mutableStateOf(false) }
-              var odoVal by remember { mutableIntStateOf(Prefs.odometerValue) }
-              val maxVal = remember { Prefs.maxValue }
+              var currentRatio by remember { mutableFloatStateOf(0f) }
               var timeStr by remember { mutableStateOf("") }
               var dateStr by remember { mutableStateOf("") }
 
@@ -458,57 +427,70 @@ jobs:
                   }
               }
 
-              LaunchedEffect(odoVal) {
-                  if (odoVal >= maxVal) { delay(300); onUnlock() }
+              LaunchedEffect(currentRatio) {
+                  if (currentRatio >= 0.98f) {
+                      delay(150)
+                      onUnlock()
+                  }
               }
 
-              Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D0D))) {
-                  Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+              Box(modifier = Modifier.fillMaxSize().background(Color(0xFF070709))) {
+                  Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                           IconButton(onClick = { hideNotifs = !hideNotifs }) {
-                              Icon(if (hideNotifs) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle", tint = Color(0xFFFF6B35))
+                              Icon(if (hideNotifs) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle", tint = Color(0xFFFF5722))
                           }
                       }
-                      Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                          Text(timeStr, fontSize = 84.sp, fontWeight = FontWeight.Thin, color = Color.White)
-                          Text(dateStr, fontSize = 16.sp, color = Color(0xFFAAAAAA))
-                      }
-                      Spacer(Modifier.height(16.dp))
 
-                      LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                          if (!hideNotifs) {
+                      Text(timeStr, fontSize = 72.sp, fontWeight = FontWeight.ExtraLight, color = Color.White)
+                      Text(dateStr, fontSize = 14.sp, color = Color(0xFF9E9E9E))
+                      Spacer(Modifier.height(8.dp))
+
+                      if (!hideNotifs && notifs.isNotEmpty()) {
+                          LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                               items(notifs) { n ->
-                                  Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0x1FFFFFFF))) {
-                                      Column(modifier = Modifier.padding(12.dp)) {
-                                          Text(n.appName, color = Color(0xFFFF6B35), fontSize = 11.sp)
-                                          Text(n.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                          if (Prefs.showContent && n.text.isNotEmpty()) Text(n.text, color = Color(0xFFAAAAAA), fontSize = 12.sp)
+                                  Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = Color(0x1AFFFFFF))) {
+                                      Column(modifier = Modifier.padding(10.dp)) {
+                                          Text(n.appName, color = Color(0xFFFF5722), fontSize = 11.sp)
+                                          Text(n.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                          if (Prefs.showContent && n.text.isNotEmpty()) Text(n.text, color = Color(0xFFAAAAAA), fontSize = 11.sp)
                                       }
                                   }
                               }
                           }
+                      } else {
+                          Spacer(modifier = Modifier.weight(1f))
                       }
 
-                      Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                          Text("ODOMETER", color = Color(0xFF888888), fontSize = 12.sp, letterSpacing = 3.sp)
-                          Spacer(Modifier.height(8.dp))
-                          OdometerDisplay(odoVal, maxVal, onChange = { odoVal = it; Prefs.odometerValue = it; onFeedback() })
-                          Text("Swipe up/down to rotate", color = Color(0xFF666666), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-                      }
+                      Text("OPPO X909 SPEEDOMETER", color = Color(0xFF757575), fontSize = 11.sp, letterSpacing = 2.sp)
+                      Text("Drag needle to REDLINE to unlock", color = Color(0xFFFF5722), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                      Spacer(Modifier.height(8.dp))
 
-                      Spacer(Modifier.height(16.dp))
+                      OppoSpeedometer(
+                          ratio = currentRatio,
+                          onRatioChange = { r ->
+                              currentRatio = r
+                              if (r > 0f) onRevEngine(r) else onStopRev()
+                          },
+                          onRelease = {
+                              currentRatio = 0f
+                              onStopRev()
+                          }
+                      )
+
+                      Spacer(Modifier.height(14.dp))
                       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                           Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                              Box(modifier = Modifier.size(56.dp).clip(CircleShape).background(Color(0x22FF6B35)).clickable { onUnlock() }, contentAlignment = Alignment.Center) {
-                                  Icon(Icons.Default.Fingerprint, "Unlock", tint = Color(0xFFFF6B35), modifier = Modifier.size(32.dp))
+                              Box(modifier = Modifier.size(54.dp).clip(CircleShape).background(Color(0x22FF5722)).clickable { onUnlock() }, contentAlignment = Alignment.Center) {
+                                  Icon(Icons.Default.Fingerprint, "Fingerprint", tint = Color(0xFFFF5722), modifier = Modifier.size(32.dp))
                               }
-                              Text("Fingerprint / PIN", color = Color(0xFFAAAAAA), fontSize = 11.sp)
+                              Text("Fingerprint", color = Color(0xFFAAAAAA), fontSize = 11.sp)
                           }
                           Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                              Box(modifier = Modifier.size(56.dp).clip(CircleShape).background(Color(0x22FF4444)).clickable {
+                              Box(modifier = Modifier.size(54.dp).clip(CircleShape).background(Color(0x22FF3D00)).clickable {
                                   ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:112")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                               }, contentAlignment = Alignment.Center) {
-                                  Icon(Icons.Default.Phone, "SOS", tint = Color(0xFFFF4444), modifier = Modifier.size(28.dp))
+                                  Icon(Icons.Default.Phone, "SOS", tint = Color(0xFFFF3D00), modifier = Modifier.size(26.dp))
                               }
                               Text("Emergency", color = Color(0xFFAAAAAA), fontSize = 11.sp)
                           }
@@ -518,30 +500,107 @@ jobs:
           }
 
           @Composable
-          fun OdometerDisplay(value: Int, maxVal: Int, onChange: (Int) -> Unit) {
-              val animVal by animateFloatAsState(targetValue = value.toFloat(), label = "odo")
-              var dragAccum by remember { mutableFloatStateOf(0f) }
-
-              Row(
+          fun OppoSpeedometer(ratio: Float, onRatioChange: (Float) -> Unit, onRelease: () -> Unit) {
+              val animatedRatio by animateFloatAsState(targetValue = ratio, label = "needle")
+              Box(
                   modifier = Modifier
-                      .clip(RoundedCornerShape(12.dp))
-                      .background(Color(0xFF161616))
-                      .padding(horizontal = 14.dp, vertical = 8.dp)
-                      .pointerInput(value, maxVal) {
-                          detectVerticalDragGestures { change, dragAmount ->
-                              change.consume()
-                              dragAccum -= dragAmount
-                              if (dragAccum >= 60f) { onChange((value + 1).coerceIn(0, maxVal)); dragAccum = 0f }
-                              else if (dragAccum <= -60f) { onChange((value - 1).coerceIn(0, maxVal)); dragAccum = 0f }
-                          }
+                      .size(270.dp)
+                      .pointerInput(Unit) {
+                          detectDragGestures(
+                              onDrag = { change, _ ->
+                                  change.consume()
+                                  val center = Offset(size.width / 2f, size.height / 2f)
+                                  val touch = change.position
+                                  val angleRad = atan2(touch.y - center.y, touch.x - center.x)
+                                  var angleDeg = Math.toDegrees(angleRad.toDouble()).toFloat()
+                                  if (angleDeg < 0) angleDeg += 360f
+
+                                  val startAngle = 140f
+                                  val sweepAngle = 260f
+                                  var progress = (angleDeg - startAngle) / sweepAngle
+                                  if (progress < 0f && angleDeg < 90f) progress = (angleDeg + 360f - startAngle) / sweepAngle
+                                  onRatioChange(progress.coerceIn(0f, 1f))
+                              },
+                              onDragEnd = { onRelease() },
+                              onDragCancel = { onRelease() }
+                          )
                       },
-                  verticalAlignment = Alignment.CenterVertically
+                  contentAlignment = Alignment.Center
               ) {
-                  for (p in 3 downTo 0) {
-                      val place = 10.0.pow(p).toFloat()
-                      val digit = (floor(animVal / place).toInt()) % 10
-                      Box(modifier = Modifier.height(60.dp).width(36.dp).clipToBounds(), contentAlignment = Alignment.Center) {
-                          Text("$digit", fontSize = 46.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF5F5F5))
+                  Canvas(modifier = Modifier.fillMaxSize()) {
+                      val w = size.width
+                      val h = size.height
+                      val center = Offset(w / 2f, h / 2f)
+                      val radius = (w / 2f) - 24.dp.toPx()
+
+                      drawCircle(color = Color(0xFF141519), radius = radius + 16.dp.toPx())
+                      drawCircle(color = Color(0xFF0C0D10), radius = radius)
+
+                      val startAngle = 140f
+                      val sweep = 260f
+
+                      drawArc(
+                          color = Color(0xFF263238),
+                          startAngle = startAngle,
+                          sweepAngle = sweep,
+                          useCenter = false,
+                          style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+                      )
+
+                      val activeSweep = sweep * animatedRatio
+                      val activeColor = if (animatedRatio > 0.8f) Color(0xFFFF1744) else Color(0xFFFF5722)
+                      drawArc(
+                          brush = Brush.sweepGradient(listOf(Color(0xFFFF9800), Color(0xFFFF5722), Color(0xFFFF1744))),
+                          startAngle = startAngle,
+                          sweepAngle = activeSweep,
+                          useCenter = false,
+                          style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+                      )
+
+                      for (i in 0..8) {
+                          val tickRatio = i / 8f
+                          val angle = Math.toRadians((startAngle + (sweep * tickRatio)).toDouble())
+                          val outer = Offset(center.x + (radius - 6.dp.toPx()) * cos(angle).toFloat(), center.y + (radius - 6.dp.toPx()) * sin(angle).toFloat())
+                          val inner = Offset(center.x + (radius - 20.dp.toPx()) * cos(angle).toFloat(), center.y + (radius - 20.dp.toPx()) * sin(angle).toFloat())
+                          val tickColor = if (i >= 7) Color(0xFFFF1744) else Color(0xFFECEFF1)
+                          drawLine(color = tickColor, start = inner, end = outer, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+
+                          val textPos = Offset(center.x + (radius - 34.dp.toPx()) * cos(angle).toFloat(), center.y + (radius - 34.dp.toPx()) * sin(angle).toFloat() + 4.dp.toPx())
+                          drawIntoCanvas { canvas ->
+                              val p = Paint().apply {
+                                  color = if (i >= 7) android.graphics.Color.RED else android.graphics.Color.WHITE
+                                  textSize = 28f
+                                  textAlign = Paint.Align.CENTER
+                                  isFakeBoldText = true
+                              }
+                              canvas.nativeCanvas.drawText("$i", textPos.x, textPos.y, p)
+                          }
+                      }
+
+                      val needleAngle = Math.toRadians((startAngle + (sweep * animatedRatio)).toDouble())
+                      val needleEnd = Offset(center.x + (radius - 12.dp.toPx()) * cos(needleAngle).toFloat(), center.y + (radius - 12.dp.toPx()) * sin(needleAngle).toFloat())
+                      drawLine(
+                          color = if (animatedRatio > 0.8f) Color(0xFFFF1744) else Color(0xFFFF3D00),
+                          start = center,
+                          end = needleEnd,
+                          strokeWidth = 5.dp.toPx(),
+                          cap = StrokeCap.Round
+                      )
+                      drawCircle(color = Color(0xFF212121), radius = 14.dp.toPx())
+                      drawCircle(color = Color(0xFFFF3D00), radius = 6.dp.toPx())
+
+                      drawIntoCanvas { canvas ->
+                          val speedKmh = (animatedRatio * 260).toInt()
+                          val p = Paint().apply {
+                              color = android.graphics.Color.WHITE
+                              textSize = 54f
+                              textAlign = Paint.Align.CENTER
+                              isFakeBoldText = true
+                          }
+                          canvas.nativeCanvas.drawText("$speedKmh", center.x, center.y + 45.dp.toPx(), p)
+                          p.textSize = 22f
+                          p.color = android.graphics.Color.GRAY
+                          canvas.nativeCanvas.drawText("km/h - x1000r/min", center.x, center.y + 60.dp.toPx(), p)
                       }
                   }
               }
@@ -565,5 +624,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: odometer-lock-apk
+          name: oppo-find5-lock-apk
           path: app/build/outputs/apk/debug/*.apk
