@@ -7,20 +7,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Scaffold Oppo Find 5 Supercar Project
+      - name: Scaffold Professional Supercar Lock
         run: |
           mkdir -p app/src/main/java/com/odometer/lock
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/raw
 
-          # 1. Download Real Supercar Engine & Exhaust Sounds
-          curl -L -o app/src/main/res/raw/engine_rev.wav "https://assets.mixkit.co/active_storage/sfx/2813/2813-preview.mp3" || true
-          curl -L -o app/src/main/res/raw/exhaust_pop.wav "https://assets.mixkit.co/active_storage/sfx/1545/1545-preview.mp3" || true
+          # Real Deep Supercar Roar (No chipmunk pitch)
+          curl -L -o app/src/main/res/raw/supercar_idle.mp3 "https://assets.mixkit.co/active_storage/sfx/2813/2813-preview.mp3" || true
+          curl -L -o app/src/main/res/raw/supercar_pop.mp3 "https://assets.mixkit.co/active_storage/sfx/1545/1545-preview.mp3" || true
 
           cat > settings.gradle << 'EOF'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
-          rootProject.name = "OppoFind5Supercar"
+          rootProject.name = "OppoFind5Master"
           include ':app'
           EOF
 
@@ -50,8 +50,8 @@ jobs:
                   applicationId "com.odometer.lock"
                   minSdk 26
                   targetSdk 34
-                  versionCode 4
-                  versionName "4.0"
+                  versionCode 5
+                  versionName "5.0"
               }
               buildTypes { release { minifyEnabled false } }
               compileOptions {
@@ -81,11 +81,14 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
               <uses-permission android:name="android.permission.WAKE_LOCK" />
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
               <application
                   android:name=".LockApp"
-                  android:label="OPPO Find 5 Supercar"
+                  android:label="OPPO Supercar Lock"
                   android:supportsRtl="true"
                   android:theme="@android:style/Theme.Material.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
@@ -125,7 +128,7 @@ jobs:
           EOF
 
           cat > app/src/main/res/values/strings.xml << 'EOF'
-          <resources><string name="app_name">OPPO Find 5 Supercar</string></resources>
+          <resources><string name="app_name">OPPO Supercar Lock</string></resources>
           EOF
 
           cat > app/src/main/java/com/odometer/lock/Core.kt << 'EOF'
@@ -133,6 +136,7 @@ jobs:
 
           import android.app.*
           import android.content.*
+          import android.net.Uri
           import android.os.*
           import android.service.notification.NotificationListenerService
           import android.service.notification.StatusBarNotification
@@ -146,12 +150,15 @@ jobs:
 
           object Prefs {
               private lateinit var sp: SharedPreferences
-              fun init(c: Context) { sp = c.getSharedPreferences("oppo_find5_p", Context.MODE_PRIVATE) }
+              fun init(c: Context) { sp = c.getSharedPreferences("oppo_master_prefs", Context.MODE_PRIVATE) }
               var sound: Boolean get() = sp.getBoolean("snd", true); set(v) = sp.edit().putBoolean("snd", v).apply()
               var vibration: Boolean get() = sp.getBoolean("vib", true); set(v) = sp.edit().putBoolean("vib", v).apply()
+              var customDialUri: String? get() = sp.getString("dial_uri", null); set(v) = sp.edit().putString("dial_uri", v).apply()
+              var customNeedleUri: String? get() = sp.getString("needle_uri", null); set(v) = sp.edit().putString("needle_uri", v).apply()
+              var customSoundUri: String? get() = sp.getString("sound_uri", null); set(v) = sp.edit().putString("sound_uri", v).apply()
           }
 
-          data class LockNotification(val key: String, val appName: String, val title: String, val text: String)
+          data class LockNotification(val key: String, val appName: String, val title: String)
 
           object NotificationStore {
               private val _list = MutableStateFlow<List<LockNotification>>(emptyList())
@@ -169,9 +176,8 @@ jobs:
               override fun onNotificationPosted(sbn: StatusBarNotification) {
                   if (sbn.packageName == packageName || (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT != 0)) return
                   val title = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: return
-                  val text = sbn.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
                   val name = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() } catch (e: Exception) { sbn.packageName }
-                  NotificationStore.add(LockNotification(sbn.key ?: "", name, title, text))
+                  NotificationStore.add(LockNotification(sbn.key ?: "", name, title))
               }
               override fun onNotificationRemoved(sbn: StatusBarNotification) { NotificationStore.remove(sbn.key ?: "") }
           }
@@ -191,10 +197,10 @@ jobs:
               }
               override fun onCreate() {
                   super.onCreate()
-                  val chanId = "find5_lock"
+                  val chanId = "find5_lock_service"
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                       getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-                          NotificationChannel(chanId, "Find 5 Lock", NotificationManager.IMPORTANCE_MIN)
+                          NotificationChannel(chanId, "Supercar Service", NotificationManager.IMPORTANCE_MIN)
                       )
                   }
                   startForeground(1, NotificationCompat.Builder(this, chanId)
@@ -226,8 +232,12 @@ jobs:
           import android.os.Bundle
           import android.provider.Settings
           import androidx.activity.ComponentActivity
+          import androidx.activity.compose.rememberLauncherForActivityResult
           import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
           import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
           import androidx.compose.ui.Modifier
@@ -240,22 +250,75 @@ jobs:
                   setContent {
                       val ctx = LocalContext.current
                       var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(ctx)) }
+                      var dialSet by remember { mutableStateOf(Prefs.customDialUri != null) }
+                      var needleSet by remember { mutableStateOf(Prefs.customNeedleUri != null) }
+                      var soundSet by remember { mutableStateOf(Prefs.customSoundUri != null) }
+
+                      val dialPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                          if (uri != null) {
+                              try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
+                              Prefs.customDialUri = uri.toString()
+                              dialSet = true
+                          }
+                      }
+                      val needlePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                          if (uri != null) {
+                              try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
+                              Prefs.customNeedleUri = uri.toString()
+                              needleSet = true
+                          }
+                      }
+                      val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                          if (uri != null) {
+                              try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
+                              Prefs.customSoundUri = uri.toString()
+                              soundSet = true
+                          }
+                      }
+
                       MaterialTheme(colorScheme = darkColorScheme()) {
                           Surface(modifier = Modifier.fillMaxSize()) {
-                              Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                  Text("OPPO Find 5 Supercar", style = MaterialTheme.typography.headlineMedium)
-                                  Text("Exact Skeuomorphic Lamborghini Lock Screen.")
+                              Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                  Text("OPPO Find 5 Studio", style = MaterialTheme.typography.headlineMedium)
+                                  Text("Custom Supercar Dashboard & Sound Control")
 
                                   Button(onClick = {
                                       ctx.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
                                   }, modifier = Modifier.fillMaxWidth()) {
-                                      Text(if (hasOverlay) "✓ Overlay Permission Granted" else "1. Grant Overlay Permission")
+                                      Text(if (hasOverlay) "✓ Overlay Granted" else "Grant Overlay Permission")
                                   }
 
                                   Button(onClick = {
                                       ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                   }, modifier = Modifier.fillMaxWidth()) {
-                                      Text("2. Grant Notification Access")
+                                      Text("Grant Notification Access")
+                                  }
+
+                                  HorizontalDivider()
+
+                                  Text("Custom Images & Audio (Optional):", style = MaterialTheme.typography.titleMedium)
+
+                                  Button(onClick = { dialPicker.launch("image/*") }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                                      Text(if (dialSet) "✓ Custom Dial Set (Click to change)" else "Select Dial Image (صورة العداد)")
+                                  }
+
+                                  Button(onClick = { needlePicker.launch("image/*") }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                                      Text(if (needleSet) "✓ Custom Needle Set (Click to change)" else "Select Needle PNG (صورة الإبرة)")
+                                  }
+
+                                  Button(onClick = { soundPicker.launch("audio/*") }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                                      Text(if (soundSet) "✓ Custom Engine Sound Set" else "Select Engine Audio MP3 (صوت المحرك)")
+                                  }
+
+                                  if (dialSet || needleSet || soundSet) {
+                                      TextButton(onClick = {
+                                          Prefs.customDialUri = null
+                                          Prefs.customNeedleUri = null
+                                          Prefs.customSoundUri = null
+                                          dialSet = false
+                                          needleSet = false
+                                          soundSet = false
+                                      }) { Text("Reset to Default 3D Cockpit") }
                                   }
 
                                   HorizontalDivider()
@@ -268,7 +331,7 @@ jobs:
                                   Button(onClick = {
                                       ctx.startActivity(Intent(ctx, LockActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                   }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                                      Text("Preview Supercar Dashboard")
+                                      Text("Preview Lock Screen")
                                   }
                               }
                           }
@@ -283,6 +346,7 @@ jobs:
 
           import android.app.KeyguardManager
           import android.content.*
+          import android.graphics.BitmapFactory
           import android.graphics.Paint
           import android.graphics.Typeface
           import android.media.*
@@ -312,10 +376,13 @@ jobs:
           import androidx.compose.ui.graphics.*
           import androidx.compose.ui.graphics.drawscope.Stroke
           import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+          import androidx.compose.ui.graphics.drawscope.rotate
           import androidx.compose.ui.graphics.nativeCanvas
           import androidx.compose.ui.input.pointer.pointerInput
           import androidx.compose.ui.platform.LocalContext
           import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.IntOffset
+          import androidx.compose.ui.unit.IntSize
           import androidx.compose.ui.unit.dp
           import androidx.compose.ui.unit.sp
           import kotlinx.coroutines.delay
@@ -325,9 +392,10 @@ jobs:
 
           class LockActivity : ComponentActivity() {
               private var soundPool: SoundPool? = null
-              private var engineStreamId = 0
-              private var engineSoundId = 0
-              private var exhaustPopId = 0
+              private var defaultRevId = 0
+              private var defaultPopId = 0
+              private var streamId = 0
+              private var customPlayer: MediaPlayer? = null
 
               private val receiver = object : BroadcastReceiver() {
                   override fun onReceive(c: Context, i: Intent) { finishAndRemoveTask() }
@@ -347,60 +415,77 @@ jobs:
                   if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
                   else registerReceiver(receiver, filter)
 
-                  initRealSupercarAudio()
+                  initSound()
 
                   setContent {
-                      OppoAventadorLockScreen(
+                      MasterLockScreen(
                           onUnlock = { unlockPhone() },
-                          onRevEngine = { ratio -> updateRealEngineSound(ratio) },
-                          onRelease = { stopRealEngineSound() }
+                          onRev = { r -> handleEngineRev(r) },
+                          onRelease = { stopEngineRev() }
                       )
                   }
               }
 
-              private fun initRealSupercarAudio() {
-                  val attrs = AudioAttributes.Builder()
-                      .setUsage(AudioAttributes.USAGE_GAME)
-                      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                      .build()
-                  soundPool = SoundPool.Builder().setMaxStreams(4).setAudioAttributes(attrs).build()
-
-                  val revResId = resources.getIdentifier("engine_rev", "raw", packageName)
-                  val popResId = resources.getIdentifier("exhaust_pop", "raw", packageName)
-                  if (revResId != 0) engineSoundId = soundPool?.load(this, revResId, 1) ?: 0
-                  if (popResId != 0) exhaustPopId = soundPool?.load(this, popResId, 1) ?: 0
-              }
-
-              private fun updateRealEngineSound(ratio: Float) {
-                  if (!Prefs.sound || engineSoundId == 0) return
-                  val targetPitch = 0.75f + (ratio * 1.35f) // Smooth pitch shift 0.75x to 2.1x
-                  val targetVol = (0.3f + ratio * 0.7f).coerceIn(0.1f, 1.0f)
-
-                  if (engineStreamId == 0) {
-                      engineStreamId = soundPool?.play(engineSoundId, targetVol, targetVol, 1, -1, targetPitch) ?: 0
-                  } else {
-                      soundPool?.setRate(engineStreamId, targetPitch)
-                      soundPool?.setVolume(engineStreamId, targetVol, targetVol)
+              private fun initSound() {
+                  if (Prefs.customSoundUri != null) {
+                      try {
+                          customPlayer = MediaPlayer().apply {
+                              setAudioAttributes(AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).setUsage(AudioAttributes.USAGE_GAME).build())
+                              setDataSource(this@LockActivity, Uri.parse(Prefs.customSoundUri))
+                              isLooping = true
+                              prepare()
+                          }
+                      } catch (e: Exception) { customPlayer = null }
                   }
 
-                  if (Prefs.vibration && ratio > 0.1f) {
+                  val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                  soundPool = SoundPool.Builder().setMaxStreams(2).setAudioAttributes(attrs).build()
+                  val rId = resources.getIdentifier("supercar_idle", "raw", packageName)
+                  val pId = resources.getIdentifier("supercar_pop", "raw", packageName)
+                  if (rId != 0) defaultRevId = soundPool?.load(this, rId, 1) ?: 0
+                  if (pId != 0) defaultPopId = soundPool?.load(this, pId, 1) ?: 0
+              }
+
+              private fun handleEngineRev(ratio: Float) {
+                  if (!Prefs.sound) return
+
+                  if (customPlayer != null) {
+                      try {
+                          if (customPlayer?.isPlaying == false) customPlayer?.start()
+                          val vol = (0.2f + ratio * 0.8f).coerceIn(0.1f, 1.0f)
+                          customPlayer?.setVolume(vol, vol)
+                      } catch (e: Exception) {}
+                  } else if (defaultRevId != 0) {
+                      // REAL BASS REV: Rate stays between 0.9x and 1.15x (NO CHIPMUNK SOUND)
+                      val naturalRate = 0.92f + (ratio * 0.22f)
+                      val volume = (0.25f + ratio * 0.75f).coerceIn(0.1f, 1.0f)
+
+                      if (streamId == 0) {
+                          streamId = soundPool?.play(defaultRevId, volume, volume, 1, -1, naturalRate) ?: 0
+                      } else {
+                          soundPool?.setRate(streamId, naturalRate)
+                          soundPool?.setVolume(streamId, volume, volume)
+                      }
+                  }
+
+                  if (Prefs.vibration && ratio > 0.12f) {
                       val v = getSystemService(Vibrator::class.java)
-                      val amp = (ratio * 255).toInt().coerceIn(15, 255)
-                      if (Build.VERSION.SDK_INT >= 26) v?.vibrate(VibrationEffect.createOneShot(20, amp))
+                      val intensity = (ratio * 255).toInt().coerceIn(20, 255)
+                      if (Build.VERSION.SDK_INT >= 26) v?.vibrate(VibrationEffect.createOneShot(20, intensity))
                   }
               }
 
-              private fun stopRealEngineSound() {
-                  if (engineStreamId != 0) {
-                      soundPool?.stop(engineStreamId)
-                      engineStreamId = 0
-                  }
+              private fun stopEngineRev() {
+                  try {
+                      if (streamId != 0) { soundPool?.stop(streamId); streamId = 0 }
+                      if (customPlayer?.isPlaying == true) { customPlayer?.pause(); customPlayer?.seekTo(0) }
+                  } catch (e: Exception) {}
               }
 
               private fun unlockPhone() {
-                  stopRealEngineSound()
-                  if (exhaustPopId != 0 && Prefs.sound) {
-                      soundPool?.play(exhaustPopId, 1.0f, 1.0f, 2, 0, 1.0f)
+                  stopEngineRev()
+                  if (defaultPopId != 0 && Prefs.sound) {
+                      soundPool?.play(defaultPopId, 1.0f, 1.0f, 2, 0, 1.0f)
                   }
                   val km = getSystemService(KeyguardManager::class.java)
                   if (km == null) { finishAndRemoveTask(); return }
@@ -410,21 +495,37 @@ jobs:
               }
 
               override fun onDestroy() {
-                  stopRealEngineSound()
+                  stopEngineRev()
                   try { unregisterReceiver(receiver) } catch (e: Exception) {}
                   soundPool?.release()
+                  customPlayer?.release()
                   super.onDestroy()
               }
           }
 
           @Composable
-          fun OppoAventadorLockScreen(onUnlock: () -> Unit, onRevEngine: (Float) -> Unit, onRelease: () -> Unit) {
+          fun MasterLockScreen(onUnlock: () -> Unit, onRev: (Float) -> Unit, onRelease: () -> Unit) {
               val ctx = LocalContext.current
               val notifs by NotificationStore.list.collectAsState()
               var hideNotifs by remember { mutableStateOf(false) }
-              var needleRatio by remember { mutableFloatStateOf(0f) }
+              var ratio by remember { mutableFloatStateOf(0f) }
               var timeStr by remember { mutableStateOf("") }
               var dateStr by remember { mutableStateOf("") }
+
+              val customDialBitmap = remember {
+                  Prefs.customDialUri?.let { uriStr ->
+                      try {
+                          ctx.contentResolver.openInputStream(Uri.parse(uriStr))?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+                      } catch (e: Exception) { null }
+                  }
+              }
+              val customNeedleBitmap = remember {
+                  Prefs.customNeedleUri?.let { uriStr ->
+                      try {
+                          ctx.contentResolver.openInputStream(Uri.parse(uriStr))?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+                      } catch (e: Exception) { null }
+                  }
+              }
 
               LaunchedEffect(Unit) {
                   while (true) {
@@ -435,14 +536,14 @@ jobs:
                   }
               }
 
-              LaunchedEffect(needleRatio) {
-                  if (needleRatio >= 0.98f) {
-                      delay(100)
+              LaunchedEffect(ratio) {
+                  if (ratio >= 0.98f) {
+                      delay(80)
                       onUnlock()
                   }
               }
 
-              Box(modifier = Modifier.fillMaxSize().background(Color(0xFF040507))) {
+              Box(modifier = Modifier.fillMaxSize().background(Color(0xFF030406))) {
                   Column(modifier = Modifier.fillMaxSize().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                           IconButton(onClick = { hideNotifs = !hideNotifs }) {
@@ -450,9 +551,9 @@ jobs:
                           }
                       }
 
-                      Text(timeStr, fontSize = 70.sp, fontWeight = FontWeight.Thin, color = Color.White)
+                      Text(timeStr, fontSize = 72.sp, fontWeight = FontWeight.Thin, color = Color.White)
                       Text(dateStr, fontSize = 13.sp, color = Color(0xFFB0BEC5), letterSpacing = 2.sp)
-                      Spacer(Modifier.height(4.dp))
+                      Spacer(Modifier.height(6.dp))
 
                       if (!hideNotifs && notifs.isNotEmpty()) {
                           LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -460,7 +561,7 @@ jobs:
                                   Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), colors = CardDefaults.cardColors(containerColor = Color(0x1AFFFFFF))) {
                                       Column(modifier = Modifier.padding(8.dp)) {
                                           Text(n.appName, color = Color(0xFFFF5722), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                          Text(n.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                          Text(n.title, color = Color.White, fontSize = 12.sp)
                                       }
                                   }
                               }
@@ -469,15 +570,17 @@ jobs:
                           Spacer(modifier = Modifier.weight(1f))
                       }
 
-                      // The Authentic Oppo Find 5 Skeuomorphic Gauge
-                      AventadorClusterGauge(
-                          ratio = needleRatio,
+                      // Dynamic Supercar Cluster
+                      InteractiveCluster(
+                          ratio = ratio,
+                          dialImage = customDialBitmap,
+                          needleImage = customNeedleBitmap,
                           onRatioChange = { r ->
-                              needleRatio = r
-                              if (r > 0f) onRevEngine(r) else onRelease()
+                              ratio = r
+                              if (r > 0f) onRev(r) else onRelease()
                           },
                           onRelease = {
-                              needleRatio = 0f
+                              ratio = 0f
                               onRelease()
                           }
                       )
@@ -495,7 +598,7 @@ jobs:
                               Box(modifier = Modifier.size(52.dp).clip(CircleShape).background(Color(0x22D50000)).clickable {
                                   ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:112")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                               }, contentAlignment = Alignment.Center) {
-                                  Icon(Icons.Default.Phone, "Emergency", tint = Color(0xFFFF1744), modifier = Modifier.size(26.dp))
+                                  Icon(Icons.Default.Phone, "SOS", tint = Color(0xFFFF1744), modifier = Modifier.size(26.dp))
                               }
                               Text("Emergency", color = Color(0xFF90A4AE), fontSize = 11.sp)
                           }
@@ -505,12 +608,18 @@ jobs:
           }
 
           @Composable
-          fun AventadorClusterGauge(ratio: Float, onRatioChange: (Float) -> Unit, onRelease: () -> Unit) {
+          fun InteractiveCluster(
+              ratio: Float,
+              dialImage: ImageBitmap?,
+              needleImage: ImageBitmap?,
+              onRatioChange: (Float) -> Unit,
+              onRelease: () -> Unit
+          ) {
               val smoothRatio by animateFloatAsState(targetValue = ratio, label = "gauge")
 
               Box(
                   modifier = Modifier
-                      .size(300.dp)
+                      .size(310.dp)
                       .pointerInput(Unit) {
                           detectDragGestures(
                               onDrag = { change, _ ->
@@ -521,7 +630,7 @@ jobs:
                                   var angleDeg = Math.toDegrees(angleRad.toDouble()).toFloat()
                                   if (angleDeg < 0) angleDeg += 360f
 
-                                  // Exactly 270 degree sweep from 135 deg to 405 deg (7:30 to 4:30)
+                                  // 135 deg to 405 deg (270 degrees sweep)
                                   val startAngle = 135f
                                   val sweepAngle = 270f
                                   var progress = (angleDeg - startAngle) / sweepAngle
@@ -537,105 +646,89 @@ jobs:
                   Canvas(modifier = Modifier.fillMaxSize()) {
                       val w = size.width
                       val center = Offset(w / 2f, w / 2f)
-                      val outerRadius = w / 2f - 10.dp.toPx()
 
-                      // 1. Heavy Brushed Titanium Chrome Rim
-                      drawCircle(
-                          brush = Brush.sweepGradient(listOf(Color(0xFF455A64), Color(0xFFCFD8DC), Color(0xFF263238), Color(0xFFECEFF1), Color(0xFF37474F))),
-                          radius = outerRadius
-                      )
-                      drawCircle(color = Color(0xFF0A0D12), radius = outerRadius - 8.dp.toPx())
+                      if (dialImage != null) {
+                          // Draw User's Custom Photorealistic Dial
+                          drawImage(
+                              image = dialImage,
+                              dstOffset = IntOffset.Zero,
+                              dstSize = IntSize(w.toInt(), w.toInt())
+                          )
+                      } else {
+                          // Default High-End 3D Rendered Cockpit Bezel
+                          val outerR = w / 2f - 8.dp.toPx()
+                          drawCircle(
+                              brush = Brush.sweepGradient(listOf(Color(0xFF37474F), Color(0xFFECEFF1), Color(0xFF263238), Color(0xFFCFD8DC), Color(0xFF37474F))),
+                              radius = outerR
+                          )
+                          drawCircle(color = Color(0xFF0C0F14), radius = outerR - 8.dp.toPx())
 
-                      // 2. Realistic 3D Carbon Fiber Plate
-                      val dialRadius = outerRadius - 10.dp.toPx()
-                      drawCircle(color = Color(0xFF13171F), radius = dialRadius)
-                      for (i in -dialRadius.toInt()..dialRadius.toInt() step 10) {
-                          drawLine(Color(0x18FFFFFF), Offset(center.x - dialRadius, center.y + i), Offset(center.x + dialRadius, center.y + i), strokeWidth = 1.5f)
-                          drawLine(Color(0x10000000), Offset(center.x + i, center.y - dialRadius), Offset(center.x + i, center.y + dialRadius), strokeWidth = 1.5f)
-                      }
+                          val dialR = outerR - 10.dp.toPx()
+                          drawCircle(color = Color(0xFF131720), radius = dialR)
 
-                      // 3. Lamborghini Swept Tachometer Track
-                      val startAngle = 135f
-                      val sweep = 270f
-                      drawArc(
-                          color = Color(0xFF1C242E),
-                          startAngle = startAngle,
-                          sweepAngle = sweep,
-                          useCenter = false,
-                          style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
-                      )
+                          // Carbon Fiber Mesh
+                          for (i in -dialR.toInt()..dialR.toInt() step 8) {
+                              drawLine(Color(0x15FFFFFF), Offset(center.x - dialR, center.y + i), Offset(center.x + dialR, center.y + i), strokeWidth = 1f)
+                          }
 
-                      // Glowing Acceleration Arc
-                      val activeSweep = sweep * smoothRatio
-                      drawArc(
-                          brush = Brush.sweepGradient(listOf(Color(0xFFFF9800), Color(0xFFFF5722), Color(0xFFD50000))),
-                          startAngle = startAngle,
-                          sweepAngle = activeSweep,
-                          useCenter = false,
-                          style = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round)
-                      )
+                          val startAngle = 135f
+                          val sweep = 270f
+                          drawArc(color = Color(0xFF1E2836), startAngle = startAngle, sweepAngle = sweep, useCenter = false, style = Stroke(12.dp.toPx(), cap = StrokeCap.Round))
+                          drawArc(
+                              brush = Brush.sweepGradient(listOf(Color(0xFFFF9800), Color(0xFFFF5722), Color(0xFFD50000))),
+                              startAngle = startAngle,
+                              sweepAngle = sweep * smoothRatio,
+                              useCenter = false,
+                              style = Stroke(13.dp.toPx(), cap = StrokeCap.Round)
+                          )
 
-                      // 4. Detailed RPM Markings (0 to 8 x1000 RPM)
-                      for (i in 0..8) {
-                          val r = i / 8f
-                          val a = Math.toRadians((startAngle + (sweep * r)).toDouble())
-                          val outer = Offset(center.x + (dialRadius - 8.dp.toPx()) * cos(a).toFloat(), center.y + (dialRadius - 8.dp.toPx()) * sin(a).toFloat())
-                          val inner = Offset(center.x + (dialRadius - 22.dp.toPx()) * cos(a).toFloat(), center.y + (dialRadius - 22.dp.toPx()) * sin(a).toFloat())
-                          val isRedline = i >= 7
-                          val tickColor = if (isRedline) Color(0xFFFF1744) else Color(0xFFECEFF1)
-                          drawLine(tickColor, inner, outer, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+                          for (i in 0..8) {
+                              val a = Math.toRadians((startAngle + (sweep * (i / 8f))).toDouble())
+                              val outer = Offset(center.x + (dialR - 8.dp.toPx()) * cos(a).toFloat(), center.y + (dialR - 8.dp.toPx()) * sin(a).toFloat())
+                              val inner = Offset(center.x + (dialR - 22.dp.toPx()) * cos(a).toFloat(), center.y + (dialR - 22.dp.toPx()) * sin(a).toFloat())
+                              drawLine(if (i >= 7) Color(0xFFFF1744) else Color(0xFFECEFF1), inner, outer, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
 
-                          val textPos = Offset(center.x + (dialRadius - 38.dp.toPx()) * cos(a).toFloat(), center.y + (dialRadius - 38.dp.toPx()) * sin(a).toFloat() + 5.dp.toPx())
-                          drawIntoCanvas { canvas ->
-                              val p = Paint().apply {
-                                  color = if (isRedline) android.graphics.Color.RED else android.graphics.Color.WHITE
-                                  textSize = 28f
-                                  textAlign = Paint.Align.CENTER
-                                  typeface = Typeface.DEFAULT_BOLD
+                              val textPos = Offset(center.x + (dialR - 38.dp.toPx()) * cos(a).toFloat(), center.y + (dialR - 38.dp.toPx()) * sin(a).toFloat() + 5.dp.toPx())
+                              drawIntoCanvas { canvas ->
+                                  val p = Paint().apply {
+                                      color = if (i >= 7) android.graphics.Color.RED else android.graphics.Color.WHITE
+                                      textSize = 28f
+                                      textAlign = Paint.Align.CENTER
+                                      typeface = Typeface.DEFAULT_BOLD
+                                  }
+                                  canvas.nativeCanvas.drawText("$i", textPos.x, textPos.y, p)
                               }
-                              canvas.nativeCanvas.drawText("$i", textPos.x, textPos.y, p)
                           }
                       }
 
-                      // 5. Authentic Skeuomorphic 3D Needle
-                      val needleAngle = Math.toRadians((startAngle + (sweep * smoothRatio)).toDouble())
-                      val needleEnd = Offset(center.x + (dialRadius - 12.dp.toPx()) * cos(needleAngle).toFloat(), center.y + (dialRadius - 12.dp.toPx()) * sin(needleAngle).toFloat())
+                      // NEEDLE DRAWING
+                      val currentAngle = 135f + (270f * smoothRatio)
 
-                      // Needle Drop Shadow
-                      drawLine(
-                          color = Color(0x88000000),
-                          start = Offset(center.x + 4.dp.toPx(), center.y + 5.dp.toPx()),
-                          end = Offset(needleEnd.x + 4.dp.toPx(), needleEnd.y + 5.dp.toPx()),
-                          strokeWidth = 7.dp.toPx(),
-                          cap = StrokeCap.Round
-                      )
-                      // Fluorescent Orange-Red Glowing Needle
-                      drawLine(
-                          color = if (smoothRatio > 0.8f) Color(0xFFFF1744) else Color(0xFFFF5722),
-                          start = center,
-                          end = needleEnd,
-                          strokeWidth = 5.dp.toPx(),
-                          cap = StrokeCap.Round
-                      )
-
-                      // Metallic Center Pivot Cap
-                      drawCircle(Color(0xFF37474F), radius = 18.dp.toPx())
-                      drawCircle(Color(0xFFCFD8DC), radius = 12.dp.toPx())
-                      drawCircle(Color(0xFFFF5722), radius = 6.dp.toPx())
-
-                      // 6. Central Supercar Telemetry Display
-                      drawIntoCanvas { canvas ->
-                          val speed = (smoothRatio * 320).toInt()
-                          val p = Paint().apply {
-                              color = android.graphics.Color.WHITE
-                              textSize = 48f
-                              textAlign = Paint.Align.CENTER
-                              typeface = Typeface.DEFAULT_BOLD
+                      if (needleImage != null) {
+                          // Draw User's Custom 3D Needle
+                          rotate(degrees = currentAngle + 90f, pivot = center) {
+                              val needleW = (w * 0.12f).toInt()
+                              val needleH = (w * 0.45f).toInt()
+                              drawImage(
+                                  image = needleImage,
+                                  dstOffset = IntOffset((center.x - needleW / 2).toInt(), (center.y - needleH).toInt()),
+                                  dstSize = IntSize(needleW, needleH)
+                              )
                           }
-                          canvas.nativeCanvas.drawText("$speed", center.x, center.y + 45.dp.toPx(), p)
-                          p.textSize = 20f
-                          p.color = android.graphics.Color.GRAY
-                          canvas.nativeCanvas.drawText("km/h - x1000r/min", center.x, center.y + 64.dp.toPx(), p)
+                      } else {
+                          // 3D Fluorescent Glowing Needle
+                          val needleAngleRad = Math.toRadians(currentAngle.toDouble())
+                          val needleLen = (w / 2f) - 24.dp.toPx()
+                          val needleEnd = Offset(center.x + needleLen * cos(needleAngleRad).toFloat(), center.y + needleLen * sin(needleAngleRad).toFloat())
+
+                          // Shadow
+                          drawLine(Color(0x77000000), Offset(center.x + 3.dp.toPx(), center.y + 4.dp.toPx()), Offset(needleEnd.x + 3.dp.toPx(), needleEnd.y + 4.dp.toPx()), strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round)
+                          // Glowing Shaft
+                          drawLine(if (smoothRatio > 0.8f) Color(0xFFFF1744) else Color(0xFFFF5722), center, needleEnd, strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round)
+
+                          // Metallic Cap
+                          drawCircle(Color(0xFF37474F), radius = 18.dp.toPx())
+                          drawCircle(Color(0xFFCFD8DC), radius = 10.dp.toPx())
                       }
                   }
               }
@@ -659,5 +752,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: oppo-find5-supercar-v4
+          name: oppo-find5-master-v5
           path: app/build/outputs/apk/debug/*.apk
